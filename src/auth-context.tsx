@@ -105,6 +105,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
+    // Restore any locally saved user session immediately (so reloads don't blank-screen)
+    try {
+      const stored = localStorage.getItem('akselling_user_profile');
+      if (stored) {
+        const parsed: UserProfile = JSON.parse(stored);
+        if (parsed && parsed.id && parsed.id !== 'guest') {
+          setUser(parsed);
+          setAuthInitialized(true);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (!isMounted) return;
 
@@ -139,10 +153,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthInitialized(true);
     });
 
+    // Safety timeout: if Firebase Auth never responds within 4 seconds,
+    // force-initialize so the app doesn't stay on a blank white loading screen forever.
+    const safetyTimer = setTimeout(() => {
+      if (isMounted && !authInitialized) {
+        console.warn('Firebase Auth initialization timed out — proceeding in offline mode.');
+        setAuthInitialized(true);
+      }
+    }, 4000);
+
     return () => {
       isMounted = false;
+      clearTimeout(safetyTimer);
       unsubscribe();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Real-time Firestore user profile sync for active user
